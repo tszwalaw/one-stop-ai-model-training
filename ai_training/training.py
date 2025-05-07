@@ -9,17 +9,16 @@ import torch
 
 def start_training():
 
-    # TODO: Get data from S3 Helper
     custom_data = load_data_from_s3()
 
-    # TODO: AI Model config
-    max_seq_length = 2048 # Choose any! We auto support RoPE Scaling internally!
-    dtype = None # None for auto detection. Float16 for Tesla T4, V100, Bfloat16 for Ampere+
-    load_in_4bit = True # Use 4bit quantization to reduce memory usage. Can be False.
+    # AI Model config
+    max_seq_length = 2048
+    dtype = None
+    load_in_4bit = True
 
     # Loading the pre-train model
     model, tokenizer = FastLlamaModel.from_pretrained(
-        model_name = "unsloth/Llama-3.2-3B-Instruct", # Choose ANY! eg. "unsloth/tinyllama" for 16bit loading
+        model_name = "unsloth/Llama-3.2-3B-Instruct",
         max_seq_length = max_seq_length,
         dtype = dtype,
         load_in_4bit = load_in_4bit,
@@ -59,7 +58,7 @@ def start_training():
         loftq_config = None, # And LoftQ quantization config
     )
 
-    # TODO: Put Data with the AI Model
+    # Put Data with the AI Model
     tokenizer = get_chat_template(
         tokenizer,
         chat_template = "llama-3.1",
@@ -68,7 +67,7 @@ def start_training():
     formatted_map_function = partial(formatting_prompts_func, tokenizer)
     dataset = dataset.map(formatted_map_function, batched = True)
 
-    # TODO: Start training
+    # Start training
     trainer = SFTTrainer(
         model = model,
         tokenizer = tokenizer,
