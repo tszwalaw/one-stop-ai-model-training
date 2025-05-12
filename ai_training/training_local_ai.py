@@ -1,5 +1,6 @@
-import json
 import os
+import time
+from datetime import datetime
 from datasets import Dataset
 from transformers import AutoTokenizer, AutoModelForCausalLM, Trainer, TrainingArguments, BitsAndBytesConfig
 from peft import LoraConfig, get_peft_model
@@ -37,20 +38,32 @@ def is_valid_model_dir(model_dir):
         return False
     return any(os.path.isfile(os.path.join(model_dir, f)) for f in required_files)
 
+def create_output_dir(base_output_dir):
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    new_training_dir = os.path.join(base_output_dir,timestamp)
+
+    adapter_weights_dir = os.path.join(new_training_dir, "adapter_weights")
+    merged_model_dir = os.path.join(new_training_dir, "merged_model")
+
+    os.makedirs(adapter_weights_dir, exist_ok=True)
+    os.makedirs(merged_model_dir, exist_ok=True)
+
+    return adapter_weights_dir, merged_model_dir
+
 def start_training(
     local_model_dir="./llama-3.2-3b-instruct",
     output_dir="./fine-tuned-llama32",
     hf_token=None
 ):
-    # Load Hugging Face token from environment or parameter
-    hf_token = hf_token or os.getenv("HF_TOKEN")
-    if not hf_token:
-        raise ValueError("Please set HF_TOKEN environment variable or provide a Hugging Face token")
 
     # Check if local model directory is valid
     model_dir = local_model_dir
     use_local_model = is_valid_model_dir(local_model_dir)
+
+    # Load Hugging Face token from environment or parameter
     if not use_local_model:
+        if not hf_token:
+            raise ValueError("Please provide a Hugging Face token")
         print(f"Local model directory {local_model_dir} is empty or invalid. Downloading meta-llama/Llama-3.2-3B-Instruct")
         model_dir = "meta-llama/Llama-3.2-3B-Instruct"
         snapshot_download(
@@ -62,11 +75,11 @@ def start_training(
         model_dir = local_model_dir  # Switch to local directory for loading
 
     # Load tokenizer
-    tokenizer_kwargs = {} if use_local_model else {"token": hf_token}
-    tokenizer = AutoTokenizer.from_pretrained(model_dir, **tokenizer_kwargs)
+    tokenizer = AutoTokenizer.from_pretrained(model_dir)
     tokenizer.pad_token = tokenizer.eos_token 
 
     # Load dataset from S3 if no local dataset path is provided
+    # TODO: handle the data in streaming
     data = load_data_from_s3()
 
     # Preprocess and tokenize the data
@@ -131,12 +144,15 @@ def start_training(
     trainer.train()
 
     # Save the fine-tuned model (adapter weights)
-    trainer.save_model(output_dir)
-    tokenizer.save_pretrained(output_dir)
-    print(f"Adapter weights saved to {output_dir}")
+    adapter_weights_dir, merged_model_dir = create_output_dir(output_dir)
+
+    # Only the LoRA adapters (delta changes)
+    trainer.save_model(adapter_weights_dir)
+    tokenizer.save_pretrained(adapter_weights_dir)
+    print(f"Adapter weights saved to {adapter_weights_dir}")
 
     # Merge LoRA adapters with base model for deployment
     merged_model = model.merge_and_unload()
-    merged_model.save_pretrained("./llama_finetuned")
-    tokenizer.save_pretrained("./llama_finetuned")
-    print("Merged model saved to ./llama_finetuned")
+    merged_model.save_pretrained(merged_model_dir)
+    tokenizer.save_pretrained(merged_model_dir)
+    print(f"Merged model saved to {merged_model_dir}")
