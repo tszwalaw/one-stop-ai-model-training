@@ -1,0 +1,6 @@
+unsloth
+packaging
+numpy
+torch
+trl
+transformers
